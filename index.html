@@ -312,24 +312,27 @@
     border-color: var(--accent);
   }
 
-  /* ---- Mobile layout (phones / narrow viewports) ---- */
+  /* ---- Mobile layout (phones / narrow viewports) ----
+     Priority: the canvas preview is the primary content, so it gets first claim on
+     vertical space; header/footer chrome and the side panel are trimmed to whatever
+     they minimally need instead of taking a fixed share of the screen. */
   @media (max-width: 760px) {
-    header { padding: 10px 12px; }
-    header h1 { font-size: 1.1rem; }
-    header .subtitle { font-size: 0.78rem; }
+    header { padding: 6px 12px; }
+    header h1 { font-size: 1rem; margin: 0; }
+    header .subtitle { display: none; }
 
     #app {
       display: flex;
       flex-direction: column;
-      padding: 10px 10px 4px 10px;
-      gap: 10px;
+      padding: 8px 8px 4px 8px;
+      gap: 8px;
     }
     #canvas-area {
       flex: 0 0 auto;
       min-height: 0;
     }
     #dropzone {
-      min-height: 180px;
+      min-height: 55vh;
     }
     .dz-secondary {
       display: none;
@@ -342,7 +345,7 @@
       flex: 0 0 auto;
     }
     #canvas-stack-outer {
-      max-height: 46vh;
+      max-height: 68vh;
     }
     #toolbar {
       flex-wrap: wrap;
@@ -350,7 +353,7 @@
     }
 
     #side-panel {
-      flex: 1 1 auto;
+      flex: 0 0 auto;
       gap: 8px;
     }
     .panel-tabs {
@@ -358,6 +361,8 @@
     }
     fieldset.panel-section {
       display: none;
+      max-height: 32vh;
+      overflow-y: auto;
     }
     fieldset.panel-section.active {
       display: block;
@@ -380,7 +385,7 @@
       font-size: 0.75rem;
     }
     footer {
-      padding: 8px 12px 14px 12px;
+      display: none;
     }
   }
 </style>
