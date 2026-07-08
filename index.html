@@ -182,10 +182,20 @@
   #canvas-stack {
     position: relative;
     line-height: 0;
+    /* Center within the preview when smaller than it; flex-start scrolling when larger */
+    margin: auto;
   }
   #displayCanvas, #overlayCanvas {
     image-rendering: pixelated;
     image-rendering: crisp-edges;
+  }
+  /* displayCanvas stays in-flow so #canvas-stack (and thus the scroll container's
+     content area) takes the rendered image's real dimensions; only the grid overlay
+     is stacked absolutely on top of it. */
+  #displayCanvas {
+    display: block;
+  }
+  #overlayCanvas {
     position: absolute;
     top: 0;
     left: 0;
@@ -349,9 +359,14 @@
       flex: 0 0 auto;
     }
     /* Fixed height (not just max): the preview must claim this space even when the
-       image is small, and zoomFit() needs a real clientHeight to fit into. */
+       image is small, and zoomFit() needs a real clientHeight to fit into.
+       flex:none is essential - the desktop rule's flex:1 (flex-basis:0) would
+       otherwise override height in the main axis and collapse this to ~0 inside
+       the auto-height mobile column. */
     #canvas-stack-outer {
-      height: 62vh;
+      flex: none;
+      height: 58vh;
+      height: 58dvh;
     }
     #toolbar {
       flex-wrap: wrap;
