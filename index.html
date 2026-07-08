@@ -1,0 +1,1377 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dot Pixel Cleaner</title>
+<style>
+  :root {
+    --bg: #16181d;
+    --panel-bg: #1e2128;
+    --border: #3a3f4b;
+    --text: #e8e8ec;
+    --text-dim: #9a9fac;
+    --accent: #5ec8ff;
+    --accent-2: #ff6bd0;
+    --warn-bg: #4a3a10;
+    --warn-border: #a8801a;
+    --error-bg: #4a1414;
+    --error-border: #b03030;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Hiragino Kaku Gothic ProN", "Segoe UI", Meiryo, sans-serif;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+  header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 {
+    margin: 0 0 4px 0;
+    font-size: 1.3rem;
+  }
+  header .subtitle {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+  }
+  #app {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 16px;
+    padding: 16px 20px;
+    min-height: 0;
+  }
+  #canvas-area {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+  #banners {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .banner {
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+  }
+  .banner-warn { background: var(--warn-bg); border: 1px solid var(--warn-border); }
+  .banner-error { background: var(--error-bg); border: 1px solid var(--error-border); }
+  .banner-close {
+    background: none; border: none; color: inherit; cursor: pointer; font-size: 1rem; line-height: 1;
+  }
+  #dropzone {
+    flex: 1;
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-dim);
+    cursor: pointer;
+    min-height: 240px;
+    text-align: center;
+    padding: 20px;
+  }
+  #dropzone.dragover {
+    border-color: var(--accent);
+    color: var(--text);
+  }
+  /* Some mobile WebKit browsers refuse to open the file picker via input.click() when
+     the input is display:none (which the `hidden` attribute sets). Hide it visually
+     instead, keeping it "visible" (0x0px, clipped) so the picker still opens reliably. */
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .dz-pick-btn {
+    display: inline-block;
+    background: var(--accent);
+    color: #08202b;
+    border: none;
+    font-size: 1rem;
+    font-weight: 600;
+    padding: 12px 28px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    cursor: pointer;
+  }
+  .dz-secondary {
+    color: var(--text-dim);
+    font-size: 0.8rem;
+    margin: 4px 0;
+  }
+  #canvas-wrap {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+  #toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 0 10px 0;
+    flex-shrink: 0;
+  }
+  .toggle-group, .zoom-group {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  button {
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+  button:hover { border-color: var(--accent); }
+  button.active {
+    background: var(--accent);
+    color: #08202b;
+    border-color: var(--accent);
+  }
+  #canvas-stack-outer {
+    flex: 1;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background:
+      linear-gradient(45deg, #23262e 25%, transparent 25%),
+      linear-gradient(-45deg, #23262e 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #23262e 75%),
+      linear-gradient(-45deg, transparent 75%, #23262e 75%);
+    background-size: 20px 20px;
+    background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+    background-color: #1a1c22;
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding: 16px;
+    position: relative;
+  }
+  #canvas-stack {
+    position: relative;
+    line-height: 0;
+  }
+  #displayCanvas, #overlayCanvas {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    position: absolute;
+    top: 0;
+    left: 0;
+  }
+  #overlayCanvas {
+    pointer-events: none;
+  }
+  #spinner {
+    position: absolute;
+    inset: 0;
+    background: rgba(10, 11, 14, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .spinner-inner {
+    width: 36px;
+    height: 36px;
+    border: 4px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #side-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow-y: auto;
+  }
+  fieldset {
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px 12px 12px;
+  }
+  legend {
+    padding: 0 6px;
+    font-size: 0.85rem;
+    color: var(--accent);
+  }
+  .field-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 6px 0;
+    font-size: 0.8rem;
+  }
+  .field-row label {
+    width: 76px;
+    flex-shrink: 0;
+    color: var(--text-dim);
+  }
+  .field-row input[type=range] {
+    flex: 1;
+    min-width: 0;
+  }
+  .field-row input[type=number] {
+    width: 60px;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 4px;
+  }
+  .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 6px 0;
+    font-size: 0.8rem;
+  }
+  .radio-row {
+    display: flex;
+    gap: 14px;
+    margin: 6px 0;
+    font-size: 0.8rem;
+  }
+  #confidenceNote {
+    font-size: 0.78rem;
+    color: #ffcf80;
+    margin: 6px 0;
+  }
+  #candidatePicker {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 8px;
+  }
+  #candidatePicker button { font-size: 0.78rem; text-align: left; }
+  select {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 6px;
+  }
+  .export-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+  }
+  footer {
+    padding: 10px 20px;
+    border-top: 1px solid var(--border);
+    font-size: 0.75rem;
+    color: var(--text-dim);
+  }
+  #zoomReadout { font-size: 0.8rem; color: var(--text-dim); width: 44px; text-align: center; }
+
+  /* Tab bar for switching side-panel sections on mobile. Hidden on desktop, where
+     all four fieldsets are simply stacked and always visible (see below). */
+  .panel-tabs {
+    display: none;
+    gap: 6px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 2px;
+  }
+  .panel-tabs .tab-btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .panel-tabs .tab-btn.active {
+    background: var(--accent);
+    color: #08202b;
+    border-color: var(--accent);
+  }
+
+  /* ---- Mobile layout (phones / narrow viewports) ---- */
+  @media (max-width: 760px) {
+    header { padding: 10px 12px; }
+    header h1 { font-size: 1.1rem; }
+    header .subtitle { font-size: 0.78rem; }
+
+    #app {
+      display: flex;
+      flex-direction: column;
+      padding: 10px 10px 4px 10px;
+      gap: 10px;
+    }
+    #canvas-area {
+      flex: 0 0 auto;
+      min-height: 0;
+    }
+    #dropzone {
+      min-height: 180px;
+    }
+    .dz-secondary {
+      display: none;
+    }
+    .dz-pick-btn {
+      font-size: 1.05rem;
+      padding: 14px 32px;
+    }
+    #canvas-wrap {
+      flex: 0 0 auto;
+    }
+    #canvas-stack-outer {
+      max-height: 46vh;
+    }
+    #toolbar {
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    #side-panel {
+      flex: 1 1 auto;
+      gap: 8px;
+    }
+    .panel-tabs {
+      display: flex;
+    }
+    fieldset.panel-section {
+      display: none;
+    }
+    fieldset.panel-section.active {
+      display: block;
+    }
+
+    /* Bigger touch targets */
+    button, select {
+      min-height: 40px;
+      padding: 8px 14px;
+    }
+    input[type=number] {
+      min-height: 34px;
+      width: 54px;
+    }
+    input[type=range] {
+      height: 30px;
+    }
+    .field-row label {
+      width: 62px;
+      font-size: 0.75rem;
+    }
+    footer {
+      padding: 8px 12px 14px 12px;
+    }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Dot Pixel Cleaner</h1>
+  <p class="subtitle">生成AIのドット絵風画像を、真のピクセルグリッドのドット絵に変換します。完全ローカル処理・画像は外部に送信されません。</p>
+</header>
+
+<main id="app">
+  <section id="canvas-area">
+    <div id="banners"></div>
+    <div id="dropzone">
+      <div>
+        <button type="button" id="btnPickFile" class="dz-pick-btn">画像を選ぶ</button>
+        <p class="dz-secondary">PCの場合はドラッグ&ドロップでも読み込めます</p>
+        <p style="font-size:0.75rem;">PNG / JPEG / WebP 対応</p>
+      </div>
+      <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp" class="visually-hidden">
+    </div>
+    <div id="canvas-wrap" hidden>
+      <div id="toolbar">
+        <div class="toggle-group">
+          <button id="btnBefore" class="active">Before</button>
+          <button id="btnAfter">After</button>
+        </div>
+        <div class="zoom-group">
+          <button id="btnZoomOut">－</button>
+          <span id="zoomReadout">100%</span>
+          <button id="btnZoomIn">＋</button>
+          <button id="btnZoomFit">フィット</button>
+        </div>
+      </div>
+      <div id="canvas-stack-outer">
+        <div id="canvas-stack">
+          <canvas id="displayCanvas"></canvas>
+          <canvas id="overlayCanvas"></canvas>
+          <div id="spinner" hidden><div class="spinner-inner"></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <aside id="side-panel">
+    <div class="panel-tabs" id="panelTabs">
+      <button type="button" class="tab-btn active" data-target="fs-grid">グリッド</button>
+      <button type="button" class="tab-btn" data-target="fs-color">色</button>
+      <button type="button" class="tab-btn" data-target="fs-cleanup">クリーン</button>
+      <button type="button" class="tab-btn" data-target="fs-export">書き出し</button>
+    </div>
+    <fieldset id="fs-grid" class="panel-section active">
+      <legend>1. グリッド設定</legend>
+      <div class="field-row">
+        <label for="cellSizeXRange">セルX</label>
+        <input type="range" id="cellSizeXRange" min="2" max="64" step="0.1" value="8">
+        <input type="number" id="cellSizeXNum" min="2" max="64" step="0.1" value="8">
+      </div>
+      <div class="field-row">
+        <label for="cellSizeYRange">セルY</label>
+        <input type="range" id="cellSizeYRange" min="2" max="64" step="0.1" value="8">
+        <input type="number" id="cellSizeYNum" min="2" max="64" step="0.1" value="8">
+      </div>
+      <div class="field-row">
+        <label for="offsetXRange">オフセットX</label>
+        <input type="range" id="offsetXRange" min="0" max="8" step="0.1" value="0">
+        <input type="number" id="offsetXNum" min="0" max="8" step="0.1" value="0">
+      </div>
+      <div class="field-row">
+        <label for="offsetYRange">オフセットY</label>
+        <input type="range" id="offsetYRange" min="0" max="8" step="0.1" value="0">
+        <input type="number" id="offsetYNum" min="0" max="8" step="0.1" value="0">
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="xyLock" checked>
+        <label for="xyLock">X/Y連動（正方形ピクセル）</label>
+      </div>
+      <div id="confidenceNote" hidden></div>
+      <div id="candidatePicker" hidden></div>
+      <button id="btnRedo" style="width:100%;">自動検出をやり直す</button>
+    </fieldset>
+
+    <fieldset id="fs-color" class="panel-section">
+      <legend>2. 色設定</legend>
+      <div class="radio-row">
+        <label><input type="radio" name="colorMode" value="mode" checked> 最頻色</label>
+        <label><input type="radio" name="colorMode" value="median"> 中央値</label>
+      </div>
+      <div class="field-row">
+        <label for="paletteRange">色数</label>
+        <input type="range" id="paletteRange" min="2" max="64" step="1" value="16">
+        <input type="number" id="paletteNum" min="2" max="64" step="1" value="16">
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="noReduction">
+        <label for="noReduction">減色しない</label>
+      </div>
+    </fieldset>
+
+    <fieldset id="fs-cleanup" class="panel-section">
+      <legend>3. クリーンアップ</legend>
+      <div class="checkbox-row">
+        <input type="checkbox" id="cleanupToggle">
+        <label for="cleanupToggle">孤立1pxノイズを除去（1パスのみ）</label>
+      </div>
+    </fieldset>
+
+    <fieldset id="fs-export" class="panel-section">
+      <legend>4. エクスポート</legend>
+      <div class="field-row">
+        <label for="upscaleSelect">拡大倍率</label>
+        <select id="upscaleSelect">
+          <option value="2">2x</option>
+          <option value="4">4x</option>
+          <option value="8" selected>8x</option>
+          <option value="16">16x</option>
+        </select>
+      </div>
+      <div class="export-row">
+        <button id="btnExport1x">等倍PNGを書き出す</button>
+        <button id="btnExportNx">拡大PNGを書き出す</button>
+      </div>
+    </fieldset>
+  </aside>
+</main>
+
+<footer>
+  ※本ツールは画像全体で単一のグリッドピッチ／オフセットを仮定します。生成AI画像内で擬似ピクセルの間隔が場所により揺れている場合の局所補正には対応していません（v1の既知の制限）。自動検出が外れる場合はサイドパネルのスライダーで手動調整してください。
+</footer>
+
+<script>
+"use strict";
+
+/* ==== Global state ==== */
+const state = {
+  sourceImageData: null,
+  cellSize: { x: 8, y: 8 },
+  offset: { x: 0, y: 0 },
+  xyLocked: true,
+  gridCandidates: [],
+  confidence: 1,
+  colorMode: "mode",
+  paletteCount: 16,
+  noReduction: false,
+  cleanupEnabled: false,
+  previewMode: "before",
+  zoom: 1,
+  repGrid: null,
+  finalGrid: null,
+  finalCanvas: null
+};
+
+/* sourceCanvas holds the one-and-only unscaled draw of the loaded image.
+   getImageData() is called on it exactly once (in drawToSourceCanvas).
+   Later drawImage() calls on it (for the Before preview) are purely a
+   display-side scale-up and never feed back into state.sourceImageData. */
+const sourceCanvas = document.createElement("canvas");
+const displayCanvas = document.getElementById("displayCanvas");
+const overlayCanvas = document.getElementById("overlayCanvas");
+
+/* ==== Section A: Image loading ==== */
+function setupDropzone() {
+  const dz = document.getElementById("dropzone");
+  const input = document.getElementById("fileInput");
+  dz.addEventListener("click", () => input.click());
+  dz.addEventListener("dragover", (e) => { e.preventDefault(); dz.classList.add("dragover"); });
+  dz.addEventListener("dragleave", () => dz.classList.remove("dragover"));
+  dz.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dz.classList.remove("dragover");
+    handleFiles(e.dataTransfer.files);
+  });
+  input.addEventListener("change", (e) => handleFiles(e.target.files));
+}
+
+function handleFiles(fileList) {
+  const file = fileList && fileList[0];
+  if (!file) return;
+  if (!file.type || !file.type.startsWith("image/")) {
+    showBanner("error", "画像ファイルではありません。PNG / JPEG / WebP 形式の画像を選択してください。");
+    return;
+  }
+  loadImageFile(file);
+}
+
+function loadImageFile(file) {
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    drawToSourceCanvas(img);
+    URL.revokeObjectURL(url);
+  };
+  img.onerror = () => {
+    showBanner("error", "画像を読み込めませんでした。ファイルが壊れている可能性があります。");
+    URL.revokeObjectURL(url);
+  };
+  img.src = url;
+}
+
+function drawToSourceCanvas(img) {
+  const w = img.naturalWidth, h = img.naturalHeight;
+  if (Math.max(w, h) > 4096) {
+    showBanner("warn", `長辺が${Math.max(w, h)}pxあります（4096px超）。グリッド情報を保つため縮小せずそのまま処理します。処理に数秒かかる場合があります。`);
+  }
+  sourceCanvas.width = w;
+  sourceCanvas.height = h;
+  const sctx = sourceCanvas.getContext("2d");
+  sctx.imageSmoothingEnabled = false;
+  sctx.clearRect(0, 0, w, h);
+  sctx.drawImage(img, 0, 0, w, h);
+  state.sourceImageData = sctx.getImageData(0, 0, w, h);
+
+  document.getElementById("dropzone").hidden = true;
+  document.getElementById("canvas-wrap").hidden = false;
+
+  resetPipelineState();
+}
+
+function resetPipelineState() {
+  state.repGrid = null;
+  state.finalGrid = null;
+  state.finalCanvas = null;
+  state.gridCandidates = [];
+  state.confidence = 1;
+  state.previewMode = "before";
+  document.getElementById("btnBefore").classList.add("active");
+  document.getElementById("btnAfter").classList.remove("active");
+  runAutoDetect();
+}
+
+function showBanner(kind, message) {
+  const container = document.getElementById("banners");
+  const div = document.createElement("div");
+  div.className = "banner banner-" + kind;
+  const span = document.createElement("span");
+  span.textContent = message;
+  const close = document.createElement("button");
+  close.textContent = "×";
+  close.className = "banner-close";
+  close.onclick = () => div.remove();
+  div.appendChild(span);
+  div.appendChild(close);
+  container.appendChild(div);
+}
+
+/* ==== Section B: Grid auto-detection ==== */
+function computeCenterCropRect(w, h, size) {
+  const cw = Math.min(size, w);
+  const ch = Math.min(size, h);
+  return { x0: Math.floor((w - cw) / 2), y0: Math.floor((h - ch) / 2), cw, ch };
+}
+
+function computeCropGray(imageData, cropRect) {
+  const { data, width } = imageData;
+  const { x0, y0, cw, ch } = cropRect;
+  const gray = new Float32Array(cw * ch);
+  for (let ly = 0; ly < ch; ly++) {
+    for (let lx = 0; lx < cw; lx++) {
+      const x = x0 + lx, y = y0 + ly;
+      const i = (y * width + x) * 4;
+      gray[ly * cw + lx] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    }
+  }
+  return gray;
+}
+
+function computeEdgeProjections(gray, cw, ch) {
+  const Px = new Float64Array(cw);
+  const Py = new Float64Array(ch);
+  for (let ly = 0; ly < ch; ly++) {
+    for (let lx = 1; lx < cw; lx++) {
+      Px[lx] += Math.abs(gray[ly * cw + lx] - gray[ly * cw + lx - 1]);
+    }
+  }
+  for (let ly = 1; ly < ch; ly++) {
+    for (let lx = 0; lx < cw; lx++) {
+      Py[ly] += Math.abs(gray[ly * cw + lx] - gray[(ly - 1) * cw + lx]);
+    }
+  }
+  return { Px, Py };
+}
+
+function autocorrelate(signal, minLag, maxLag) {
+  const n = signal.length;
+  let mean = 0;
+  for (let i = 0; i < n; i++) mean += signal[i];
+  mean /= n;
+  const centered = new Float64Array(n);
+  for (let i = 0; i < n; i++) centered[i] = signal[i] - mean;
+  const scores = new Float64Array(maxLag + 1);
+  for (let lag = minLag; lag <= maxLag && lag < n; lag++) {
+    let sum = 0;
+    for (let i = 0; i < n - lag; i++) sum += centered[i] * centered[i + lag];
+    scores[lag] = sum / n; // biased estimator: constant denominator penalizes large lags, avoiding tail inflation
+  }
+  return scores;
+}
+
+/* A perfectly periodic grid autocorrelates strongly not just at the true pitch but at
+   2x/3x/... its multiples too - sometimes even more strongly than at the fundamental,
+   since more periods reinforce each other. This is the classic pitch-detection "octave
+   error". Walk a candidate lag down through small integer divisors and accept a smaller
+   lag if the RAW autocorrelation score there is still a substantial fraction of the
+   candidate's score - a genuine harmonic's strength is explained by its fundamental. */
+function reduceToFundamentalLag(scores, lag, minLag) {
+  let current = lag;
+  for (let iter = 0; iter < 4; iter++) {
+    const refScore = scores[current];
+    let reduced = null;
+    for (let divisor = 6; divisor >= 2; divisor--) {
+      const candidate = Math.round(current / divisor);
+      if (candidate < minLag || candidate >= current) continue;
+      const s = scores[candidate];
+      if (s !== undefined && s >= 0.5 * refScore) { reduced = candidate; break; }
+    }
+    if (reduced === null) break;
+    current = reduced;
+  }
+  return current;
+}
+
+function findTopCandidates(scores, minLag, maxLag, topN) {
+  const peaks = [];
+  for (let lag = minLag; lag <= maxLag; lag++) {
+    const s = scores[lag];
+    if (s === undefined) continue;
+    const prev = lag > minLag ? scores[lag - 1] : -Infinity;
+    const next = lag < maxLag ? scores[lag + 1] : -Infinity;
+    if (s >= prev && s >= next && s > 0) peaks.push({ lag, score: s });
+  }
+  if (peaks.length === 0) return [];
+  peaks.sort((a, b) => b.score - a.score);
+  const seen = new Set();
+  const result = [];
+  for (const p of peaks) {
+    const fundamental = reduceToFundamentalLag(scores, p.lag, minLag);
+    if (seen.has(fundamental)) continue;
+    seen.add(fundamental);
+    result.push(fundamental);
+    if (result.length >= topN) break;
+  }
+  return result;
+}
+
+function computeGridDims(w, h, pitchX, pitchY, offX, offY) {
+  return {
+    cols: Math.floor((w - offX) / pitchX),
+    rows: Math.floor((h - offY) / pitchY)
+  };
+}
+
+const CELL_COST_FRACS = [0.2, 0.5, 0.8];
+const MAX_COST_CELLS = 300;
+// Reused across calls to avoid allocating per-cell/per-sample arrays inside the hot
+// offset/pitch search loops (this function runs many thousands of times per auto-detect).
+const _costScratchR = new Float64Array(9);
+const _costScratchG = new Float64Array(9);
+const _costScratchB = new Float64Array(9);
+
+function computeCellVarianceCost(imageData, pitchX, pitchY, offX, offY) {
+  const { data, width, height } = imageData;
+  const { cols, rows } = computeGridDims(width, height, pitchX, pitchY, offX, offY);
+  if (cols < 1 || rows < 1) return Infinity;
+  const total = cols * rows;
+  const stride = total <= MAX_COST_CELLS ? 1 : Math.max(1, Math.round(Math.sqrt(total / MAX_COST_CELLS)));
+  let totalCost = 0, cellCount = 0;
+  for (let r = 0; r < rows; r += stride) {
+    for (let c = 0; c < cols; c += stride) {
+      const cx0 = offX + c * pitchX, cy0 = offY + r * pitchY;
+      let mr = 0, mg = 0, mb = 0, k = 0;
+      for (const fy of CELL_COST_FRACS) {
+        const py = Math.min(height - 1, Math.max(0, Math.round(cy0 + fy * pitchY)));
+        for (const fx of CELL_COST_FRACS) {
+          const px = Math.min(width - 1, Math.max(0, Math.round(cx0 + fx * pitchX)));
+          const i = (py * width + px) * 4;
+          const rr = data[i], gg = data[i + 1], bb = data[i + 2];
+          _costScratchR[k] = rr; _costScratchG[k] = gg; _costScratchB[k] = bb;
+          mr += rr; mg += gg; mb += bb;
+          k++;
+        }
+      }
+      mr /= k; mg /= k; mb /= k;
+      let v = 0;
+      for (let j = 0; j < k; j++) {
+        v += (_costScratchR[j] - mr) ** 2 + (_costScratchG[j] - mg) ** 2 + (_costScratchB[j] - mb) ** 2;
+      }
+      totalCost += v;
+      cellCount++;
+    }
+  }
+  return totalCost / cellCount;
+}
+
+function searchBestOffset(imageData, pitchX, pitchY) {
+  let best = { cost: Infinity, offX: 0, offY: 0 };
+  let second = Infinity;
+  const coarseStepX = Math.max(1, pitchX / 16);
+  const coarseStepY = Math.max(1, pitchY / 16);
+  for (let offX = 0; offX < pitchX; offX += coarseStepX) {
+    for (let offY = 0; offY < pitchY; offY += coarseStepY) {
+      const cost = computeCellVarianceCost(imageData, pitchX, pitchY, offX, offY);
+      if (cost < best.cost) { second = best.cost; best = { cost, offX, offY }; }
+      else if (cost < second) second = cost;
+    }
+  }
+  const rangeX = coarseStepX, rangeY = coarseStepY;
+  const baseOffX = best.offX, baseOffY = best.offY;
+  for (let dx = -rangeX; dx <= rangeX; dx += 0.25) {
+    for (let dy = -rangeY; dy <= rangeY; dy += 0.25) {
+      const offX = Math.min(pitchX - 0.01, Math.max(0, baseOffX + dx));
+      const offY = Math.min(pitchY - 0.01, Math.max(0, baseOffY + dy));
+      const cost = computeCellVarianceCost(imageData, pitchX, pitchY, offX, offY);
+      if (cost < best.cost) { second = best.cost; best = { cost, offX, offY }; }
+      else if (cost < second && cost > best.cost) second = cost;
+    }
+  }
+  return { cost: best.cost, offX: best.offX, offY: best.offY, secondBest: second };
+}
+
+/* Autocorrelation only ever proposes integer-pixel pitch candidates (it operates on
+   integer lags of the edge-projection signal), but AI-generated art frequently has a
+   non-integer true pitch (spec 3.2.3). Holding pitch at the nearest integer causes the
+   assumed grid to drift out of alignment by up to ~0.5px per cell, which accumulates
+   across the image and corrupts the offset search. This refines one axis's pitch (in a
+   +/-1.5px, 0.25px-step neighborhood of the integer candidate) jointly with that axis's
+   offset, holding the other axis fixed - called alternately per axis so both converge. */
+function refineAxisPitchOffset(imageData, axis, current) {
+  const pitchKey = axis === "x" ? "pitchX" : "pitchY";
+  const offKey = axis === "x" ? "offX" : "offY";
+  const basePitch = current[pitchKey];
+  let best = { ...current, cost: computeCellVarianceCost(imageData, current.pitchX, current.pitchY, current.offX, current.offY) };
+  for (let dp = -1.5; dp <= 1.5; dp += 0.25) {
+    const pitch = basePitch + dp;
+    if (pitch < 2) continue;
+    for (let off = 0; off < pitch; off += 0.25) {
+      const trial = { ...current, [pitchKey]: pitch, [offKey]: off };
+      const cost = computeCellVarianceCost(imageData, trial.pitchX, trial.pitchY, trial.offX, trial.offY);
+      if (cost < best.cost) best = { ...trial, cost };
+    }
+  }
+  return best;
+}
+
+function runAutoDetect() {
+  const imageData = state.sourceImageData;
+  if (!imageData) return;
+  showSpinner();
+  requestAnimationFrame(() => {
+    const { width, height } = imageData;
+    const cropRect = computeCenterCropRect(width, height, 512);
+    const gray = computeCropGray(imageData, cropRect);
+    const { Px, Py } = computeEdgeProjections(gray, cropRect.cw, cropRect.ch);
+    const maxLagX = Math.max(4, Math.min(64, Math.floor(cropRect.cw / 2)));
+    const maxLagY = Math.max(4, Math.min(64, Math.floor(cropRect.ch / 2)));
+    const minLag = 4;
+    const scoresX = autocorrelate(Px, minLag, maxLagX);
+    const scoresY = autocorrelate(Py, minLag, maxLagY);
+    const candX = findTopCandidates(scoresX, minLag, maxLagX, 3);
+    const candY = findTopCandidates(scoresY, minLag, maxLagY, 3);
+
+    if (candX.length === 0 || candY.length === 0) {
+      showBanner("warn", "グリッドを自動検出できませんでした。サイドパネルで手動調整してください。");
+      state.confidence = 0;
+      state.gridCandidates = [];
+      updateConfidenceUI();
+      hideSpinner();
+      runFullPipeline();
+      return;
+    }
+
+    const pairCount = Math.min(candX.length, candY.length, 3);
+    const results = [];
+    for (let i = 0; i < pairCount; i++) {
+      const pitchX = candX[i], pitchY = candY[i];
+      const off = searchBestOffset(imageData, pitchX, pitchY);
+      results.push({ pitchX, pitchY, offX: off.offX, offY: off.offY, cost: off.cost });
+    }
+    results.sort((a, b) => a.cost - b.cost);
+    const best = results[0];
+    const runnerUp = results.length > 1 ? results[1].cost : best.cost * 2 + 1e-6;
+    // Confidence reflects ambiguity between the integer-lag candidates (e.g. JPEG 8x8
+    // block-noise false positives); sub-pixel refinement below is a local fine-tune of
+    // the winning candidate and intentionally does not change this measure.
+    const confidence = runnerUp > 0 ? Math.min(1, Math.max(0, 1 - best.cost / runnerUp)) : 1;
+
+    let refined = { pitchX: best.pitchX, pitchY: best.pitchY, offX: best.offX, offY: best.offY };
+    refined = refineAxisPitchOffset(imageData, "x", refined);
+    refined = refineAxisPitchOffset(imageData, "y", refined);
+    refined = refineAxisPitchOffset(imageData, "x", refined);
+    refined = refineAxisPitchOffset(imageData, "y", refined);
+
+    state.cellSize = { x: refined.pitchX, y: refined.pitchY };
+    state.offset = { x: refined.offX, y: refined.offY };
+    state.gridCandidates = results;
+    state.confidence = confidence;
+
+    syncGridInputsFromState();
+    updateConfidenceUI();
+    hideSpinner();
+    runFullPipeline();
+  });
+}
+
+function updateConfidenceUI() {
+  const note = document.getElementById("confidenceNote");
+  const picker = document.getElementById("candidatePicker");
+  if (state.gridCandidates.length > 1 && state.confidence < 0.15) {
+    note.hidden = false;
+    note.textContent = `グリッド検出の信頼度が低いです（候補間の差が小さい）。下から候補を選ぶか、手動で調整してください。`;
+    picker.hidden = false;
+    picker.innerHTML = "";
+    state.gridCandidates.forEach((cand, i) => {
+      const btn = document.createElement("button");
+      btn.textContent = `候補${i + 1}: ${cand.pitchX.toFixed(1)} x ${cand.pitchY.toFixed(1)} px`;
+      btn.onclick = () => {
+        state.cellSize = { x: cand.pitchX, y: cand.pitchY };
+        state.offset = { x: cand.offX, y: cand.offY };
+        syncGridInputsFromState();
+        runFullPipeline();
+      };
+      picker.appendChild(btn);
+    });
+  } else {
+    note.hidden = true;
+    picker.hidden = true;
+  }
+}
+
+/* ==== Section C: Manual grid adjustment UI ==== */
+let cellSizeXCtl, cellSizeYCtl, offsetXCtl, offsetYCtl;
+
+function bindPair(sliderId, numberId, onChange) {
+  const slider = document.getElementById(sliderId);
+  const number = document.getElementById(numberId);
+  const handler = (val) => {
+    slider.value = val;
+    number.value = val;
+    onChange(parseFloat(val));
+  };
+  slider.addEventListener("input", (e) => handler(e.target.value));
+  number.addEventListener("input", (e) => handler(e.target.value));
+  return {
+    setValue: (v) => { slider.value = v; number.value = (Math.round(v * 10) / 10); },
+    setMax: (m) => { slider.max = m; number.max = m; }
+  };
+}
+
+function initGridControls() {
+  cellSizeXCtl = bindPair("cellSizeXRange", "cellSizeXNum", (v) => onCellSizeChange("x", v));
+  cellSizeYCtl = bindPair("cellSizeYRange", "cellSizeYNum", (v) => onCellSizeChange("y", v));
+  offsetXCtl = bindPair("offsetXRange", "offsetXNum", (v) => onOffsetChange("x", v));
+  offsetYCtl = bindPair("offsetYRange", "offsetYNum", (v) => onOffsetChange("y", v));
+
+  document.getElementById("xyLock").addEventListener("change", (e) => {
+    state.xyLocked = e.target.checked;
+    if (state.xyLocked) {
+      state.cellSize.y = state.cellSize.x;
+      cellSizeYCtl.setValue(state.cellSize.x);
+      offsetYCtl.setMax(state.cellSize.y);
+      drawGridOverlay();
+      scheduleReprocess();
+    }
+  });
+
+  document.getElementById("btnRedo").addEventListener("click", () => runAutoDetect());
+}
+
+function onCellSizeChange(axis, val) {
+  val = Math.min(64, Math.max(2, val));
+  state.cellSize[axis] = val;
+  if (state.xyLocked) {
+    const other = axis === "x" ? "y" : "x";
+    state.cellSize[other] = val;
+    (other === "x" ? cellSizeXCtl : cellSizeYCtl).setValue(val);
+  }
+  offsetXCtl.setMax(state.cellSize.x);
+  offsetYCtl.setMax(state.cellSize.y);
+  if (state.offset.x >= state.cellSize.x) { state.offset.x = Math.max(0, state.cellSize.x - 0.1); offsetXCtl.setValue(state.offset.x); }
+  if (state.offset.y >= state.cellSize.y) { state.offset.y = Math.max(0, state.cellSize.y - 0.1); offsetYCtl.setValue(state.offset.y); }
+  drawGridOverlay();
+  scheduleReprocess();
+}
+
+function onOffsetChange(axis, val) {
+  const max = state.cellSize[axis];
+  val = Math.min(Math.max(0, max - 0.01), Math.max(0, val));
+  state.offset[axis] = val;
+  drawGridOverlay();
+  scheduleReprocess();
+}
+
+function syncGridInputsFromState() {
+  cellSizeXCtl.setValue(state.cellSize.x);
+  cellSizeYCtl.setValue(state.cellSize.y);
+  offsetXCtl.setMax(state.cellSize.x);
+  offsetXCtl.setValue(state.offset.x);
+  offsetYCtl.setMax(state.cellSize.y);
+  offsetYCtl.setValue(state.offset.y);
+  drawGridOverlay();
+}
+
+function drawGridOverlay() {
+  const octx = overlayCanvas.getContext("2d");
+  if (!state.sourceImageData || state.previewMode !== "before") {
+    overlayCanvas.style.display = "none";
+    if (state.sourceImageData) octx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    return;
+  }
+  overlayCanvas.style.display = "block";
+  octx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+  const { cellSize, offset, zoom } = state;
+  const { width, height } = state.sourceImageData;
+  octx.strokeStyle = "rgba(255,0,220,0.65)";
+  octx.lineWidth = 1;
+  octx.beginPath();
+  for (let x = offset.x; x <= width; x += cellSize.x) {
+    const px = Math.round(x * zoom) + 0.5;
+    octx.moveTo(px, 0);
+    octx.lineTo(px, height * zoom);
+  }
+  for (let y = offset.y; y <= height; y += cellSize.y) {
+    const py = Math.round(y * zoom) + 0.5;
+    octx.moveTo(0, py);
+    octx.lineTo(width * zoom, py);
+  }
+  octx.stroke();
+}
+
+/* ==== Section D: Cell representative color extraction ==== */
+function getCellRect(row, col, pitchX, pitchY, offX, offY) {
+  return {
+    x0: offX + col * pitchX,
+    y0: offY + row * pitchY,
+    x1: offX + (col + 1) * pitchX,
+    y1: offY + (row + 1) * pitchY
+  };
+}
+
+function getInsetRect(rect, insetFrac) {
+  const w = rect.x1 - rect.x0, h = rect.y1 - rect.y0;
+  return {
+    x0: rect.x0 + w * insetFrac,
+    y0: rect.y0 + h * insetFrac,
+    x1: rect.x1 - w * insetFrac,
+    y1: rect.y1 - h * insetFrac
+  };
+}
+
+function collectPixelsInRect(imageData, rect) {
+  const { data, width, height } = imageData;
+  const x0 = Math.max(0, Math.floor(rect.x0));
+  const x1 = Math.min(width, Math.ceil(rect.x1));
+  const y0 = Math.max(0, Math.floor(rect.y0));
+  const y1 = Math.min(height, Math.ceil(rect.y1));
+  const out = [];
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      if (x + 0.5 < rect.x0 || x + 0.5 >= rect.x1 || y + 0.5 < rect.y0 || y + 0.5 >= rect.y1) continue;
+      const i = (y * width + x) * 4;
+      out.push([data[i], data[i + 1], data[i + 2]]);
+    }
+  }
+  if (out.length === 0) {
+    const cx = Math.min(width - 1, Math.max(0, Math.round((rect.x0 + rect.x1) / 2 - 0.5)));
+    const cy = Math.min(height - 1, Math.max(0, Math.round((rect.y0 + rect.y1) / 2 - 0.5)));
+    const i = (cy * width + cx) * 4;
+    out.push([data[i], data[i + 1], data[i + 2]]);
+  }
+  return out;
+}
+
+function modeColor(samples) {
+  const bins = new Map();
+  for (const s of samples) {
+    const r = s[0], g = s[1], b = s[2];
+    const key = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
+    let bin = bins.get(key);
+    if (!bin) { bin = { count: 0, r: 0, g: 0, b: 0 }; bins.set(key, bin); }
+    bin.count++; bin.r += r; bin.g += g; bin.b += b;
+  }
+  let best = null;
+  for (const bin of bins.values()) if (!best || bin.count > best.count) best = bin;
+  return [Math.round(best.r / best.count), Math.round(best.g / best.count), Math.round(best.b / best.count)];
+}
+
+function medianColor(samples) {
+  const rs = samples.map((s) => s[0]).sort((a, b) => a - b);
+  const gs = samples.map((s) => s[1]).sort((a, b) => a - b);
+  const bs = samples.map((s) => s[2]).sort((a, b) => a - b);
+  const med = (arr) => {
+    const mid = Math.floor(arr.length / 2);
+    return arr.length % 2 ? arr[mid] : Math.round((arr[mid - 1] + arr[mid]) / 2);
+  };
+  return [med(rs), med(gs), med(bs)];
+}
+
+function extractRepresentativeColors() {
+  const { sourceImageData, cellSize, offset, colorMode } = state;
+  const { cols, rows } = computeGridDims(sourceImageData.width, sourceImageData.height, cellSize.x, cellSize.y, offset.x, offset.y);
+  const grid = [];
+  for (let r = 0; r < rows; r++) {
+    const rowArr = [];
+    for (let c = 0; c < cols; c++) {
+      const rect = getCellRect(r, c, cellSize.x, cellSize.y, offset.x, offset.y);
+      const inset = getInsetRect(rect, 0.2);
+      const samples = collectPixelsInRect(sourceImageData, inset);
+      rowArr.push(colorMode === "median" ? medianColor(samples) : modeColor(samples));
+    }
+    grid.push(rowArr);
+  }
+  return { grid, cols, rows };
+}
+
+/* ==== Section E: Palette reduction (median cut) ==== */
+function medianCutPalette(colorList, targetCount) {
+  if (colorList.length === 0) return [];
+  let buckets = [colorList.slice()];
+  while (buckets.length < targetCount) {
+    let splitIdx = -1, splitRange = -1, splitChannel = 0;
+    buckets.forEach((bucket, i) => {
+      if (bucket.length < 2) return;
+      for (let ch = 0; ch < 3; ch++) {
+        let mn = Infinity, mx = -Infinity;
+        for (const c of bucket) { if (c[ch] < mn) mn = c[ch]; if (c[ch] > mx) mx = c[ch]; }
+        const range = mx - mn;
+        if (range > splitRange) { splitRange = range; splitIdx = i; splitChannel = ch; }
+      }
+    });
+    if (splitIdx === -1 || splitRange <= 0) break;
+    const bucket = buckets[splitIdx];
+    bucket.sort((a, b) => a[splitChannel] - b[splitChannel]);
+    const mid = Math.floor(bucket.length / 2);
+    buckets.splice(splitIdx, 1, bucket.slice(0, mid), bucket.slice(mid));
+  }
+  return buckets.map((bucket) => {
+    let r = 0, g = 0, b = 0;
+    for (const c of bucket) { r += c[0]; g += c[1]; b += c[2]; }
+    const n = bucket.length;
+    return [Math.round(r / n), Math.round(g / n), Math.round(b / n)];
+  });
+}
+
+function buildNearestColorMapper(palette) {
+  const cache = new Map();
+  return function nearest(color) {
+    const key = color[0] + "," + color[1] + "," + color[2];
+    if (cache.has(key)) return cache.get(key);
+    let best = palette[0], bestDist = Infinity;
+    for (const p of palette) {
+      const d = (p[0] - color[0]) ** 2 + (p[1] - color[1]) ** 2 + (p[2] - color[2]) ** 2;
+      if (d < bestDist) { bestDist = d; best = p; }
+    }
+    cache.set(key, best);
+    return best;
+  };
+}
+
+/* ==== Section F: Cleanup (optional) ==== */
+function removeIsolatedPixels(grid) {
+  const rows = grid.length, cols = grid[0] ? grid[0].length : 0;
+  const key = (c) => c[0] + "," + c[1] + "," + c[2];
+  const out = grid.map((row) => row.slice());
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (r === 0 || r === rows - 1 || c === 0 || c === cols - 1) continue;
+      const center = grid[r][c];
+      const neighbors = [grid[r - 1][c], grid[r + 1][c], grid[r][c - 1], grid[r][c + 1]];
+      const allDifferent = neighbors.every((n) => key(n) !== key(center));
+      if (!allDifferent) continue;
+      const counts = new Map();
+      for (const n of neighbors) {
+        const k = key(n);
+        counts.set(k, (counts.get(k) || 0) + 1);
+      }
+      let majorityCount = 0, majorityColor = null;
+      for (const [k, cnt] of counts) {
+        if (cnt > majorityCount) { majorityCount = cnt; majorityColor = neighbors.find((n) => key(n) === k); }
+      }
+      if (majorityCount >= 3) out[r][c] = majorityColor;
+    }
+  }
+  return out;
+}
+
+/* ==== Section G: Preview rendering ==== */
+function buildFinalCanvas(grid) {
+  const rows = grid.length, cols = grid[0] ? grid[0].length : 0;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, cols);
+  canvas.height = Math.max(1, rows);
+  const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = false;
+  if (cols === 0 || rows === 0) return canvas;
+  const imgData = ctx.createImageData(cols, rows);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const color = grid[r][c];
+      const i = (r * cols + c) * 4;
+      imgData.data[i] = color[0];
+      imgData.data[i + 1] = color[1];
+      imgData.data[i + 2] = color[2];
+      imgData.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(imgData, 0, 0);
+  return canvas;
+}
+
+function renderDisplay() {
+  const ctx = displayCanvas.getContext("2d");
+  ctx.imageSmoothingEnabled = false;
+  let srcW = 0, srcH = 0, drawSrc = null;
+
+  if (state.previewMode === "before" && state.sourceImageData) {
+    srcW = state.sourceImageData.width;
+    srcH = state.sourceImageData.height;
+    drawSrc = sourceCanvas;
+  } else if (state.previewMode === "after" && state.finalCanvas) {
+    srcW = state.finalCanvas.width;
+    srcH = state.finalCanvas.height;
+    drawSrc = state.finalCanvas;
+  }
+
+  if (!drawSrc) return;
+
+  const dw = Math.max(1, Math.round(srcW * state.zoom));
+  const dh = Math.max(1, Math.round(srcH * state.zoom));
+  displayCanvas.width = dw;
+  displayCanvas.height = dh;
+  overlayCanvas.width = dw;
+  overlayCanvas.height = dh;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(drawSrc, 0, 0, srcW, srcH, 0, 0, dw, dh);
+
+  drawGridOverlay();
+}
+
+function showSpinner() { document.getElementById("spinner").hidden = false; }
+function hideSpinner() { document.getElementById("spinner").hidden = true; }
+
+/* ==== Section H: Export ==== */
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function exportPNG1x() {
+  if (!state.finalCanvas) return;
+  state.finalCanvas.toBlob((blob) => triggerDownload(blob, "dot-pixel-1x.png"), "image/png");
+}
+
+function exportPNGUpscaled(n) {
+  if (!state.finalCanvas) return;
+  const w = state.finalCanvas.width, h = state.finalCanvas.height;
+  const canvas = document.createElement("canvas");
+  canvas.width = w * n;
+  canvas.height = h * n;
+  const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(state.finalCanvas, 0, 0, w, h, 0, 0, canvas.width, canvas.height);
+  canvas.toBlob((blob) => triggerDownload(blob, `dot-pixel-${n}x.png`), "image/png");
+}
+
+/* ==== Section I: Orchestration / wiring ==== */
+function runFullPipeline() {
+  if (!state.sourceImageData) { hideSpinner(); return; }
+  showSpinner();
+  requestAnimationFrame(() => {
+    const { grid } = extractRepresentativeColors();
+    state.repGrid = grid;
+    let finalGrid = grid;
+
+    if (!state.noReduction && grid.length > 0) {
+      const flat = [];
+      for (const row of grid) for (const c of row) flat.push(c);
+      const palette = medianCutPalette(flat, state.paletteCount);
+      const nearest = buildNearestColorMapper(palette);
+      finalGrid = grid.map((row) => row.map((c) => nearest(c)));
+    }
+
+    if (state.cleanupEnabled) finalGrid = removeIsolatedPixels(finalGrid);
+
+    state.finalGrid = finalGrid;
+    state.finalCanvas = buildFinalCanvas(finalGrid);
+    renderDisplay();
+    hideSpinner();
+  });
+}
+
+function debounce(fn, wait) {
+  let t;
+  return (...args) => {
+    showSpinner();
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), wait);
+  };
+}
+const scheduleReprocess = debounce(runFullPipeline, 150);
+
+function initColorControls() {
+  document.querySelectorAll('input[name=colorMode]').forEach((r) => {
+    r.addEventListener("change", (e) => {
+      if (e.target.checked) { state.colorMode = e.target.value; scheduleReprocess(); }
+    });
+  });
+  bindPair("paletteRange", "paletteNum", (v) => {
+    state.paletteCount = Math.round(v);
+    scheduleReprocess();
+  });
+  document.getElementById("noReduction").addEventListener("change", (e) => {
+    state.noReduction = e.target.checked;
+    document.getElementById("paletteRange").disabled = state.noReduction;
+    document.getElementById("paletteNum").disabled = state.noReduction;
+    scheduleReprocess();
+  });
+}
+
+function initCleanupControls() {
+  document.getElementById("cleanupToggle").addEventListener("change", (e) => {
+    state.cleanupEnabled = e.target.checked;
+    scheduleReprocess();
+  });
+}
+
+function initExportControls() {
+  document.getElementById("btnExport1x").addEventListener("click", exportPNG1x);
+  document.getElementById("btnExportNx").addEventListener("click", () => {
+    const n = parseInt(document.getElementById("upscaleSelect").value, 10);
+    exportPNGUpscaled(n);
+  });
+}
+
+function setPreviewMode(mode) {
+  state.previewMode = mode;
+  document.getElementById("btnBefore").classList.toggle("active", mode === "before");
+  document.getElementById("btnAfter").classList.toggle("active", mode === "after");
+  renderDisplay();
+}
+
+function setZoom(z) {
+  state.zoom = Math.min(32, Math.max(0.1, z));
+  document.getElementById("zoomReadout").textContent = Math.round(state.zoom * 100) + "%";
+  renderDisplay();
+}
+
+function zoomFit() {
+  const outer = document.getElementById("canvas-stack-outer");
+  const src = state.previewMode === "before" ? state.sourceImageData : state.finalCanvas;
+  if (!src) return;
+  const availW = outer.clientWidth - 32;
+  const availH = outer.clientHeight - 32;
+  const scale = Math.max(0.1, Math.min(availW / src.width, availH / src.height));
+  setZoom(scale);
+}
+
+function initPreviewControls() {
+  document.getElementById("btnBefore").addEventListener("click", () => setPreviewMode("before"));
+  document.getElementById("btnAfter").addEventListener("click", () => setPreviewMode("after"));
+  document.getElementById("btnZoomIn").addEventListener("click", () => setZoom(state.zoom * 1.5));
+  document.getElementById("btnZoomOut").addEventListener("click", () => setZoom(state.zoom / 1.5));
+  document.getElementById("btnZoomFit").addEventListener("click", zoomFit);
+}
+
+function initPanelTabs() {
+  const tabs = Array.from(document.querySelectorAll(".panel-tabs .tab-btn"));
+  const sections = Array.from(document.querySelectorAll(".panel-section"));
+  tabs.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      tabs.forEach((b) => b.classList.toggle("active", b === btn));
+      sections.forEach((sec) => sec.classList.toggle("active", sec.id === btn.dataset.target));
+    });
+  });
+}
+
+function init() {
+  setupDropzone();
+  initGridControls();
+  initColorControls();
+  initCleanupControls();
+  initExportControls();
+  initPreviewControls();
+  initPanelTabs();
+}
+
+document.addEventListener("DOMContentLoaded", init);
+</script>
+</body>
+</html>
