@@ -19,6 +19,10 @@
     --error-border: #b03030;
   }
   * { box-sizing: border-box; }
+  /* The hidden attribute's UA rule (display:none) loses to any authored `display:`
+     declaration like #dropzone{display:flex}, so elements JS "hides" via .hidden=true
+     would stay visible without this. */
+  [hidden] { display: none !important; }
   body {
     margin: 0;
     background: var(--bg);
@@ -603,7 +607,9 @@ function drawToSourceCanvas(img) {
   document.getElementById("dropzone").hidden = true;
   document.getElementById("canvas-wrap").hidden = false;
 
-  zoomFit();
+  // Fit after the browser has laid out the freshly-unhidden canvas area, so
+  // clientWidth/Height reflect the real preview size rather than 0.
+  requestAnimationFrame(zoomFit);
   resetPipelineState();
 }
 
