@@ -332,7 +332,7 @@
       min-height: 0;
     }
     #dropzone {
-      min-height: 55vh;
+      min-height: 200px;
     }
     .dz-secondary {
       display: none;
@@ -344,8 +344,10 @@
     #canvas-wrap {
       flex: 0 0 auto;
     }
+    /* Fixed height (not just max): the preview must claim this space even when the
+       image is small, and zoomFit() needs a real clientHeight to fit into. */
     #canvas-stack-outer {
-      max-height: 68vh;
+      height: 62vh;
     }
     #toolbar {
       flex-wrap: wrap;
@@ -601,6 +603,7 @@ function drawToSourceCanvas(img) {
   document.getElementById("dropzone").hidden = true;
   document.getElementById("canvas-wrap").hidden = false;
 
+  zoomFit();
   resetPipelineState();
 }
 
